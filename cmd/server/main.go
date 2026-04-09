@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	repoOwner = "inspiring-group"
+	repoOwner = "taifme"
 	repoName  = "inspiring-swiss-knife"
 	repoURL   = "https://github.com/" + repoOwner + "/" + repoName
 	rawScript = "https://raw.githubusercontent.com/" + repoOwner + "/" + repoName + "/main/install.ps1"

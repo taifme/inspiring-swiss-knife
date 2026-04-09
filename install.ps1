@@ -2,9 +2,9 @@
 # Inspiring Swiss Knife — One-Line Installer
 #
 # Usage (run as Administrator in PowerShell):
-#   irm "https://isk.inspiring.group/win" | iex
+#   irm "https://isk.inspiringlivingsolutions.com/win" | iex
 #   -- or --
-#   irm "https://raw.githubusercontent.com/inspiring-group/inspiring-swiss-knife/main/install.ps1" | iex
+#   irm "https://raw.githubusercontent.com/taifme/inspiring-swiss-knife/main/install.ps1" | iex
 #
 # What this script does:
 #   1. Checks that PowerShell 5+ and internet access are available
@@ -18,7 +18,7 @@
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$RepoOwner  = 'inspiring-group'
+$RepoOwner  = 'taifme'
 $RepoName   = 'inspiring-swiss-knife'
 $ApiUrl     = "https://api.github.com/repos/$RepoOwner/$RepoName/releases/latest"
 

@@ -172,10 +172,36 @@ func (v InstallView) Update(msg tea.Msg) (InstallView, tea.Cmd, bool) {
 
 // View renders the install tab content into exactly contentH lines (no footer).
 func (v InstallView) View(contentH int) string {
-	lines := []string{
-		v.renderCategoryTabs(),
+	apps := v.currentApps()
+
+	// ── 3-line fixed header ───────────────────────────────────────────────────
+	tabBar := v.renderCategoryTabs()
+	divider := StyleDivider.Render(strings.Repeat("─", v.width))
+
+	// Active category label shown BELOW the divider (breadcrumb)
+	catLabel := "  " + StyleCatActive.Render("▶  "+string(v.categories[v.activeCat])) +
+		"  " + StyleTextMuted(fmt.Sprintf("(%d apps)", len(apps)))
+	if v.offset > 0 {
+		catLabel += StyleTextMuted("   ↑ scroll")
 	}
-	lines = append(lines, strings.Split(v.renderAppList(contentH-1), "\n")...)
+	listH := contentH - 3 // tabBar + divider + catLabel
+	if listH < 1 {
+		listH = 1
+	}
+	end := v.offset + listH
+	if end > len(apps) {
+		end = len(apps)
+	}
+	if end < len(apps) {
+		catLabel += StyleTextMuted("   ↓ more")
+	}
+
+	fixed := []string{tabBar, divider, catLabel}
+
+	// ── App list ──────────────────────────────────────────────────────────────
+	appLines := strings.Split(v.renderAppList(listH), "\n")
+
+	lines := append(fixed, appLines...)
 
 	// Pad or trim to exact height
 	for len(lines) < contentH {
@@ -263,63 +289,43 @@ func (v InstallView) renderAppList(maxLines int) string {
 		return StyleTextMuted("  No apps in this category.")
 	}
 
-	visibleLines := maxLines - 2 // reserve header + scroll indicator
-	if visibleLines < 1 {
-		visibleLines = 1
-	}
-	end := v.offset + visibleLines
+	end := v.offset + maxLines
 	if end > len(apps) {
 		end = len(apps)
 	}
 	visible := apps[v.offset:end]
 
-	// Layout: 4 columns to match WinUtil
-	cols := 4
-	colWidth := (v.width - 4) / cols
-	if colWidth < 20 {
-		colWidth = 20
-	}
-
 	var rows []string
-	for rowStart := 0; rowStart < len(visible); rowStart += cols {
-		var colStrs []string
-		for c := 0; c < cols; c++ {
-			idx := rowStart + c
-			if idx >= len(visible) {
-				colStrs = append(colStrs, strings.Repeat(" ", colWidth))
-				continue
-			}
-			app := visible[idx]
-			globalIdx := v.offset + idx
-			colStrs = append(colStrs, v.renderApp(app, globalIdx, colWidth))
-		}
-		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, colStrs...))
+	for i, app := range visible {
+		rows = append(rows, v.renderApp(app, v.offset+i))
 	}
-
-	// Scroll indicators
-	header := fmt.Sprintf("  %s  (%d apps)",
-		StyleSectionHeader.Render(string(v.categories[v.activeCat])),
-		len(apps))
-	if v.offset > 0 {
-		header += StyleTextMuted("  ↑ scroll")
-	}
-	if end < len(apps) {
-		header += StyleTextMuted("  ↓ more")
-	}
-
-	return header + "\n" + strings.Join(rows, "\n")
+	return strings.Join(rows, "\n")
 }
 
-func (v InstallView) renderApp(app pkgs.App, idx int, width int) string {
+// renderApp renders one app as a full-width vertical list row.
+func (v InstallView) renderApp(app pkgs.App, idx int) string {
 	isSelected := v.selected[app.WingetID]
 	isCursor := idx == v.cursor
 
+	rowW := v.width
+	if rowW < 40 {
+		rowW = 40
+	}
+
+	// ── Cursor & checkbox ─────────────────────────────────────────────────────
+	prefix := "  "
+	if isCursor {
+		prefix = StyleInfo.Render("▶ ")
+	}
 	checkbox := CheckboxStr(isSelected)
 
+	// ── Name (fixed width) ────────────────────────────────────────────────────
+	nameW := 28
+	if rowW > 120 {
+		nameW = 34
+	}
 	var nameStyle lipgloss.Style
 	switch {
-	case isCursor && isSelected:
-		nameStyle = StyleAppCursor
 	case isCursor:
 		nameStyle = StyleAppCursor
 	case isSelected:
@@ -327,26 +333,65 @@ func (v InstallView) renderApp(app pkgs.App, idx int, width int) string {
 	default:
 		nameStyle = StyleAppNormal
 	}
+	nameTxt := nameStyle.Render(truncate(app.Name, nameW))
+	// Pad name to fixed column width (visual chars)
+	nameVisW := lipgloss.Width(nameTxt)
+	if nameVisW < nameW {
+		nameTxt += strings.Repeat(" ", nameW-nameVisW)
+	}
 
-	name := nameStyle.Render(truncate(app.Name, width-6))
-	prefix := "  "
+	// ── Source badge ──────────────────────────────────────────────────────────
+	var badge string
+	switch app.Source {
+	case pkgs.SourceManual:
+		badge = lipgloss.NewStyle().Foreground(colorYellow).Render(" manual ")
+	case pkgs.SourceMSStore:
+		badge = lipgloss.NewStyle().Foreground(colorPurple).Render(" store  ")
+	case pkgs.SourceLinux:
+		badge = lipgloss.NewStyle().Foreground(colorTextDim).Render(" linux  ")
+	case pkgs.SourceNPM:
+		badge = lipgloss.NewStyle().Foreground(colorGreen).Render(" npm    ")
+	default:
+		badge = lipgloss.NewStyle().Foreground(colorTextDim).Render(" winget ")
+	}
+	badgeW := lipgloss.Width(badge)
+
+	// ── Note (fills remaining width) ─────────────────────────────────────────
+	// prefix(2) + checkbox(3) + space(1) + name(nameW) + badge(badgeW) + padding(2)
+	usedW := 2 + 3 + 1 + nameW + badgeW + 2
+	noteMaxW := rowW - usedW
+	var note string
+	if noteMaxW > 8 && app.Note != "" {
+		note = "  " + StyleTextMuted(truncate(app.Note, noteMaxW))
+		// Pad note to fill exact remaining space
+		noteVisW := lipgloss.Width(note)
+		padNeeded := noteMaxW - (noteVisW - 2) // subtract the "  " we added
+		if padNeeded > 0 {
+			note += strings.Repeat(" ", padNeeded)
+		}
+	}
+
+	// ── Highlight cursor row with a subtle background ─────────────────────────
+	row := fmt.Sprintf("%s%s %s%s%s", prefix, checkbox, nameTxt, note, badge)
 	if isCursor {
-		prefix = StyleInfo.Render("▶ ")
+		row = lipgloss.NewStyle().
+			Background(colorPanelBg).
+			Render(row)
 	}
 
-	cell := fmt.Sprintf("%s%s %s", prefix, checkbox, name)
-	// Pad to column width
-	cellWidth := lipgloss.Width(cell)
-	if cellWidth < width {
-		cell += strings.Repeat(" ", width-cellWidth)
+	// Ensure full width
+	rowVisW := lipgloss.Width(row)
+	if rowVisW < rowW {
+		row += strings.Repeat(" ", rowW-rowVisW)
 	}
-	return cell
+	return row
 }
 
 
 // approxListHeight gives a rough estimate used during keyboard navigation.
+// Accounts for: app-header(~5) + tabBar(1) + divider(1) + catLabel(1) + footer(1)
 func (v *InstallView) approxListHeight() int {
-	h := v.height - 8
+	h := v.height - 9
 	if h < 5 {
 		h = 5
 	}
